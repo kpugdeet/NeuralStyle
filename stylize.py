@@ -4,6 +4,7 @@ import vgg
 
 import tensorflow as tf
 import numpy as np
+import time
 
 from sys import stderr
 
@@ -36,7 +37,7 @@ def stylize(network, initial, content, styles, iterations,
 
     # compute content features in feedforward mode
     g = tf.Graph()
-    with g.as_default(), g.device('/cpu:0'), tf.Session() as sess:
+    with g.as_default(), g.device('/cpu:0'), tf.Session(config=tf.ConfigProto(log_device_placement=True)) as sess:
         image = tf.placeholder('float', shape=shape)
         net, mean_pixel = vgg.net(network, image)
         content_pre = np.array([vgg.preprocess(content, mean_pixel)])
@@ -57,7 +58,7 @@ def stylize(network, initial, content, styles, iterations,
                 style_features[i][layer] = gram
 
     # make stylized image using backpropogation
-    with tf.Graph().as_default():
+    with tf.Graph().as_default(), tf.device('/GPU:0'):
         if initial is None:
             noise = np.random.normal(size=shape, scale=np.std(content) * 0.1)
             initial = tf.random_normal(shape) * 0.256
@@ -109,13 +110,16 @@ def stylize(network, initial, content, styles, iterations,
         # optimization
         best_loss = float('inf')
         best = None
+
+        start_time = time.time()
+        g = tf.Graph()
         with tf.Session() as sess:
             sess.run(tf.initialize_all_variables())
             for i in range(iterations):
                 last_step = (i == iterations - 1)
                 print_progress(i, last=last_step)
                 train_step.run()
-
+                tmp = image.eval()
                 if (checkpoint_iterations and i % checkpoint_iterations == 0) or last_step:
                     this_loss = loss.eval()
                     if this_loss < best_loss:
@@ -125,7 +129,7 @@ def stylize(network, initial, content, styles, iterations,
                         (None if last_step else i),
                         vgg.unprocess(best.reshape(shape[1:]), mean_pixel)
                     )
-
+            print('Time : {0}'.format(time.time() - start_time))
 
 def _tensor_size(tensor):
     from operator import mul
